@@ -3,14 +3,19 @@ const router = express.Router();
 const authController = require('../controllers/authController');
 const multer = require('multer');
 const path = require('path');
+const fs = require('fs');
 
 // Configuration de Multer : où ranger les images
 const storage = multer.diskStorage({
     destination: (req, file, cb) => {
-        cb(null, 'uploads/'); // Les fichiers iront dans un dossier 'uploads'
+        const dir = 'uploads/';
+        // Si le dossier n'existe pas, on le crée
+        if (!fs.existsSync(dir)) {
+            fs.mkdirSync(dir, { recursive: true });
+        }
+        cb(null, dir);
     },
     filename: (req, file, cb) => {
-        // Donne un nom unique : date + nom d'origine
         cb(null, Date.now() + path.extname(file.originalname));
     }
 });
