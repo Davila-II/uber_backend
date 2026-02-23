@@ -43,16 +43,26 @@ exports.requestOTP = async (req, res) => {
     } catch (err) { res.status(500).json({ success: false, message: "Erreur technique" }); }
 };
 
-exports.verifyOTP = async (req, res) => {
-    const { phone, code } = req.body;
+exports.verifyDriverOTP = async (req, res) => {
+    const { email, code } = req.body;
     try {
-        const result = await db.query('SELECT * FROM users WHERE phone = $1 AND otp_code = $2', [phone, code]);
+        const result = await db.query('SELECT * FROM chauffeurs WHERE email = $1 AND otp_code = $2', [email, code]);
+        
         if (result.rows.length > 0) {
-            await db.query('UPDATE users SET otp_code = NULL WHERE phone = $1', [phone]);
-            return res.status(200).json({ success: true, message: "Réussi" });
+            const driver = result.rows[0];
+            // On vérifie si la colonne 'brand' est remplie pour savoir si le profil est complet
+            const isProfileComplete = driver.brand !== null;
+
+            await db.query('UPDATE chauffeurs SET is_verified = true, otp_code = NULL WHERE email = $1', [email]);
+            
+            return res.status(200).json({ 
+                success: true, 
+                message: "Vérifié",
+                isProfileComplete: isProfileComplete // On envoie l'info à Flutter
+            });
         }
         return res.status(400).json({ success: false, message: "Code incorrect" });
-    } catch (err) { return res.status(500).json({ success: false, message: "Erreur serveur" }); }
+    } catch (err) { res.status(500).json({ success: false, message: "Erreur" }); }
 };
 
 // ==========================================
@@ -94,6 +104,34 @@ exports.verifyDriverOTP = async (req, res) => {
         }
         return res.status(400).json({ success: false, message: "Code incorrect" });
     } catch (err) { res.status(500).json({ success: false, message: "Erreur" }); }
+};
+
+exports.loginDriver = async (req, res) => {
+    const { email } = req.body;
+    const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
+    try {
+        const result = await db.query('SELECT * FROM chauffeurs WHERE email = $1', [email]);
+        if (result.rows.length === 0) {
+            return res.status(404).json({ success: false, message: "Aucun compte trouvé avec cet email" });
+        }
+
+        // On met à jour le code OTP en base
+        await db.query('UPDATE chauffeurs SET otp_code = $1 WHERE email = $2', [otpCode, email]);
+
+        // Envoi de l'email via Brevo
+        try {
+            await axios.post('https://api.brevo.com/v3/smtp/email', {
+                sender: { name: "Uber CM Pro", email: "daviladutau@gmail.com" },
+                to: [{ email: email }],
+                subject: "Votre code de connexion Uber CM Pro",
+                htmlContent: `<p>Votre code de connexion est : <strong>${otpCode}</strong></p>`
+            }, { headers: { 'api-key': BREVO_API_KEY, 'Content-Type': 'application/json' } });
+        } catch (e) { console.error("Brevo Error:", e.message); }
+
+        res.status(200).json({ success: true, message: "Code envoyé" });
+    } catch (err) {
+        res.status(500).json({ success: false, message: err.message });
+    }
 };
 
 // ✅ NOUVELLE FONCTION : Finalisation du profil (Véhicule + Documents)

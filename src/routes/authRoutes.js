@@ -30,6 +30,7 @@ router.post('/verify-otp', authController.verifyOTP);
 // --- ROUTES CHAUFFEURS (PRO) ---
 router.post('/driver/register', authController.registerDriver);
 router.post('/driver/verify-otp', authController.verifyDriverOTP);
+router.post('/driver/login', authController.loginDriver);
 
 // ✅ ICI : On utilise upload.fields pour dire à Multer d'attendre ces 4 images précisément
 router.post('/driver/complete-profile', upload.fields([
