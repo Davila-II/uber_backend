@@ -76,8 +76,7 @@ exports.verifyOTP = async (req, res) => {
 
 exports.registerDriver = async (req, res) => {
     const { name, email, phone, city, referral_code } = req.body;
-    // OTP à 6 chiffres pour plus de sécurité côté chauffeur
-    const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
+    console.log("📩 Requête reçue pour inscription chauffeur:", email); // DOIT APPARAÎTRE DANS LES LOGS
 
     try {
         const check = await db.query('SELECT * FROM chauffeurs WHERE email = $1', [email]);
@@ -105,7 +104,10 @@ exports.registerDriver = async (req, res) => {
         res.status(201).json({ success: true, message: "Chauffeur créé, code envoyé." });
     } catch (err) {
         console.error("❌ Register Driver Error:", err.message);
-        res.status(500).json({ success: false, message: "Erreur: " + err.message });
+        return res.status(500).json({ 
+            success: false, 
+            message: "DEBUG_SERVER: " + err.message 
+        });
     }
 };
 
