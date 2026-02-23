@@ -4,9 +4,8 @@ const db = require('../config/db');
 const BREVO_API_KEY = process.env.BREVO_API_KEY;
 
 // ==========================================
-// SECTION CLIENTS (APPLICATION UTILISATEUR)
+// SECTION CLIENTS
 // ==========================================
-
 exports.register = async (req, res) => {
     const { phone, name, email } = req.body;
     if (!phone || !name || !email) {
@@ -17,10 +16,7 @@ exports.register = async (req, res) => {
         if (userCheck.rows.length > 0) {
             return res.status(400).json({ success: false, message: "Ce numéro est déjà utilisé" });
         }
-        await db.query(
-            'INSERT INTO users (phone, name, email) VALUES ($1, $2, $3)',
-            [phone, name, email]
-        );
+        await db.query('INSERT INTO users (phone, name, email) VALUES ($1, $2, $3)', [phone, name, email]);
         res.status(201).json({ success: true, message: "Compte créé avec succès !" });
     } catch (err) {
         res.status(500).json({ success: false, message: "Erreur lors de l'inscription" });
@@ -32,27 +28,19 @@ exports.requestOTP = async (req, res) => {
     const otpCode = Math.floor(1000 + Math.random() * 9000).toString();
     try {
         const userCheck = await db.query('SELECT * FROM users WHERE phone = $1', [phone]);
-        if (userCheck.rows.length === 0) {
-            return res.status(404).json({ success: false, message: "Ce numéro n'est pas enregistré." });
-        }
+        if (userCheck.rows.length === 0) return res.status(404).json({ success: false, message: "Non enregistré." });
         const user = userCheck.rows[0];
         await db.query('UPDATE users SET otp_code = $1 WHERE phone = $2', [otpCode, phone]);
-
         try {
             await axios.post('https://api.brevo.com/v3/smtp/email', {
                 sender: { name: "Uber CM", email: "daviladutau@gmail.com" },
                 to: [{ email: user.email, name: user.name }],
                 subject: "Votre code Uber CM",
-                htmlContent: `<h4>Bonjour ${user.name},</h4><p>Votre code est : <strong>${otpCode}</strong></p>`
-            }, {
-                headers: { 'api-key': BREVO_API_KEY, 'Content-Type': 'application/json' }
-            });
-        } catch (emailErr) { console.error("⚠️ Brevo:", emailErr.message); }
-
+                htmlContent: `<h4>Code : ${otpCode}</h4>`
+            }, { headers: { 'api-key': BREVO_API_KEY, 'Content-Type': 'application/json' } });
+        } catch (e) { console.error(e.message); }
         res.status(200).json({ success: true, message: "Code envoyé" });
-    } catch (err) {
-        res.status(500).json({ success: false, message: "Erreur technique" });
-    }
+    } catch (err) { res.status(500).json({ success: false, message: "Erreur technique" }); }
 };
 
 exports.verifyOTP = async (req, res) => {
@@ -61,79 +49,85 @@ exports.verifyOTP = async (req, res) => {
         const result = await db.query('SELECT * FROM users WHERE phone = $1 AND otp_code = $2', [phone, code]);
         if (result.rows.length > 0) {
             await db.query('UPDATE users SET otp_code = NULL WHERE phone = $1', [phone]);
-            return res.status(200).json({ success: true, message: "Vérification réussie" });
-        } else {
-            return res.status(400).json({ success: false, message: "Code incorrect" });
+            return res.status(200).json({ success: true, message: "Réussi" });
         }
-    } catch (err) {
-        return res.status(500).json({ success: false, message: "Erreur serveur" });
-    }
+        return res.status(400).json({ success: false, message: "Code incorrect" });
+    } catch (err) { return res.status(500).json({ success: false, message: "Erreur serveur" }); }
 };
 
 // ==========================================
-// SECTION CHAUFFEURS (APPLICATION PRO)
+// SECTION CHAUFFEURS (PRO)
 // ==========================================
 
 exports.registerDriver = async (req, res) => {
     const { name, email, phone, city, referral_code } = req.body;
-    console.log("📩 Requête reçue pour inscription chauffeur:", email);
-
-    // FIX: Génération correcte du code
     const generatedOtp = Math.floor(100000 + Math.random() * 900000).toString();
-
     try {
-        // 1. Vérifier si l'email existe déjà
         const check = await db.query('SELECT * FROM chauffeurs WHERE email = $1', [email]);
-        if (check.rows.length > 0) {
-            return res.status(400).json({ success: false, message: "Cet email est déjà utilisé" });
-        }
-
-        // 2. Insertion avec la bonne variable generatedOtp
+        if (check.rows.length > 0) return res.status(400).json({ success: false, message: "Email déjà utilisé" });
+        
         await db.query(
             'INSERT INTO chauffeurs (name, email, phone, city, referral_code, otp_code) VALUES ($1, $2, $3, $4, $5, $6)',
             [name, email, phone, city, referral_code, generatedOtp]
         );
 
-        // 3. Envoi via Brevo
         try {
             await axios.post('https://api.brevo.com/v3/smtp/email', {
                 sender: { name: "Uber CM Pro", email: "daviladutau@gmail.com" },
-                to: [{ email: email, name: name }],
-                subject: "Vérification Chauffeur Uber CM Pro",
-                htmlContent: `<h4>Bienvenue ${name},</h4><p>Votre code chauffeur est : <strong>${generatedOtp}</strong></p>`
-            }, {
-                headers: { 'api-key': BREVO_API_KEY, 'Content-Type': 'application/json' }
-            });
-        } catch (e) { 
-            console.error("⚠️ Brevo Chauffeur Error:", e.response ? e.response.data : e.message); 
-        }
+                to: [{ email, name }],
+                subject: "Vérification Chauffeur",
+                htmlContent: `<h4>Code : ${generatedOtp}</h4>`
+            }, { headers: { 'api-key': BREVO_API_KEY, 'Content-Type': 'application/json' } });
+        } catch (e) { console.error(e.message); }
 
-        return res.status(201).json({ success: true, message: "Chauffeur créé, code envoyé." });
-
-    } catch (err) {
-        console.error("❌ Register Driver Error:", err.message);
-        return res.status(500).json({ 
-            success: false, 
-            message: "DEBUG_SERVER: " + err.message 
-        });
-    }
+        return res.status(201).json({ success: true, message: "Chauffeur créé." });
+    } catch (err) { return res.status(500).json({ success: false, message: err.message }); }
 };
 
 exports.verifyDriverOTP = async (req, res) => {
     const { email, code } = req.body;
     try {
-        const result = await db.query(
-            'SELECT * FROM chauffeurs WHERE email = $1 AND otp_code = $2',
-            [email, code]
-        );
-
+        const result = await db.query('SELECT * FROM chauffeurs WHERE email = $1 AND otp_code = $2', [email, code]);
         if (result.rows.length > 0) {
             await db.query('UPDATE chauffeurs SET is_verified = true, otp_code = NULL WHERE email = $1', [email]);
-            return res.status(200).json({ success: true, message: "Compte vérifié avec succès" });
-        } else {
-            return res.status(400).json({ success: false, message: "Code incorrect" });
+            return res.status(200).json({ success: true, message: "Vérifié" });
         }
+        return res.status(400).json({ success: false, message: "Code incorrect" });
+    } catch (err) { res.status(500).json({ success: false, message: "Erreur" }); }
+};
+
+// ✅ NOUVELLE FONCTION : Finalisation du profil (Véhicule + Documents)
+exports.completeDriverProfile = async (req, res) => {
+    try {
+        const { email, brand, model, year, color, plate } = req.body;
+        
+        // Les fichiers sont dans req.files grâce à multer
+        const licensePath = req.files['license'] ? req.files['license'][0].path : null;
+        const insurancePath = req.files['insurance'] ? req.files['insurance'][0].path : null;
+        const idCardPath = req.files['id_card'] ? req.files['id_card'][0].path : null;
+        const vehiclePhotoPath = req.files['vehicle_photo'] ? req.files['vehicle_photo'][0].path : null;
+
+        console.log("Données reçues pour :", email);
+        console.log("Fichiers enregistrés dans /uploads/");
+
+        // Mise à jour de la base de données (Assure-toi que ces colonnes existent dans ta table chauffeurs)
+        const query = `
+            UPDATE chauffeurs 
+            SET brand = $1, model = $2, year = $3, color = $4, plate = $5, 
+                license_img = $6, insurance_img = $7, id_card_img = $8, vehicle_img = $9
+            WHERE email = $10
+        `;
+        
+        await db.query(query, [
+            brand, model, year, color, plate, 
+            licensePath, insurancePath, idCardPath, vehiclePhotoPath, 
+            email
+        ]);
+
+        res.status(200).json({ success: true, message: "Profil et documents enregistrés !" });
+
     } catch (err) {
-        res.status(500).json({ success: false, message: "Erreur serveur" });
+        console.error("❌ Erreur complete-profile:", err.message);
+        res.status(500).json({ success: false, message: "Erreur serveur : " + err.message });
     }
 };
