@@ -76,32 +76,40 @@ exports.verifyOTP = async (req, res) => {
 
 exports.registerDriver = async (req, res) => {
     const { name, email, phone, city, referral_code } = req.body;
-    console.log("📩 Requête reçue pour inscription chauffeur:", email); // DOIT APPARAÎTRE DANS LES LOGS
+    console.log("📩 Requête reçue pour inscription chauffeur:", email);
+
+    // FIX: Génération correcte du code
+    const generatedOtp = Math.floor(100000 + Math.random() * 900000).toString();
 
     try {
+        // 1. Vérifier si l'email existe déjà
         const check = await db.query('SELECT * FROM chauffeurs WHERE email = $1', [email]);
         if (check.rows.length > 0) {
             return res.status(400).json({ success: false, message: "Cet email est déjà utilisé" });
         }
 
+        // 2. Insertion avec la bonne variable generatedOtp
         await db.query(
             'INSERT INTO chauffeurs (name, email, phone, city, referral_code, otp_code) VALUES ($1, $2, $3, $4, $5, $6)',
-            [name, email, phone, city, referral_code, otpCode]
+            [name, email, phone, city, referral_code, generatedOtp]
         );
 
-        // Envoi réel via Brevo
+        // 3. Envoi via Brevo
         try {
             await axios.post('https://api.brevo.com/v3/smtp/email', {
                 sender: { name: "Uber CM Pro", email: "daviladutau@gmail.com" },
                 to: [{ email: email, name: name }],
                 subject: "Vérification Chauffeur Uber CM Pro",
-                htmlContent: `<h4>Bienvenue ${name},</h4><p>Votre code de vérification chauffeur est : <strong>${otpCode}</strong></p>`
+                htmlContent: `<h4>Bienvenue ${name},</h4><p>Votre code chauffeur est : <strong>${generatedOtp}</strong></p>`
             }, {
                 headers: { 'api-key': BREVO_API_KEY, 'Content-Type': 'application/json' }
             });
-        } catch (e) { console.error("⚠️ Brevo Chauffeur:", e.message); }
+        } catch (e) { 
+            console.error("⚠️ Brevo Chauffeur Error:", e.response ? e.response.data : e.message); 
+        }
 
-        res.status(201).json({ success: true, message: "Chauffeur créé, code envoyé." });
+        return res.status(201).json({ success: true, message: "Chauffeur créé, code envoyé." });
+
     } catch (err) {
         console.error("❌ Register Driver Error:", err.message);
         return res.status(500).json({ 
