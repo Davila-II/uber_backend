@@ -105,7 +105,7 @@ exports.registerDriver = async (req, res) => {
         res.status(201).json({ success: true, message: "Chauffeur créé, code envoyé." });
     } catch (err) {
         console.error("❌ Register Driver Error:", err.message);
-        res.status(500).json({ success: false, message: "Erreur lors de l'inscription" });
+        res.status(500).json({ success: false, message: "Erreur: " + err.message });
     }
 };
 
