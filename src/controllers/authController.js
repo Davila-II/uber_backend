@@ -148,30 +148,32 @@ exports.requestOTP = async (req, res) => {
 exports.verifyOTP = async (req, res) => {
     let { phone, code } = req.body; 
     
-    // ✅ Sécurité : Nettoyage des données pour éviter les espaces invisibles
     const cleanPhone = phone ? phone.trim() : "";
     const cleanCode = code ? code.toString().trim() : "";
 
     try {
-        // Log pour debugger dans Railway (tu verras ce que le serveur reçoit vraiment)
-        console.log(`Tentative de vérification - Phone: ${cleanPhone}, Code: ${cleanCode}`);
+        // 1. On cherche d'abord l'utilisateur par son téléphone uniquement pour voir son OTP actuel
+        const userCheck = await db.query('SELECT phone, otp_code FROM users WHERE phone = $1', [cleanPhone]);
 
-        const result = await db.query(
-            'SELECT * FROM users WHERE phone = $1 AND otp_code = $2', 
-            [cleanPhone, cleanCode]
-        );
-        
-        if (result.rows.length > 0) {
+        if (userCheck.rows.length === 0) {
+            console.log(`❌ Vérification échouée : Aucun utilisateur trouvé avec le téléphone [${cleanPhone}]`);
+            return res.status(404).json({ success: false, message: "Utilisateur non trouvé" });
+        }
+
+        const storedOtp = userCheck.rows[0].otp_code;
+        console.log(`🔍 DEBUG : Téléphone trouvé [${cleanPhone}] | OTP en base : [${storedOtp}] | OTP envoyé par Flutter : [${cleanCode}]`);
+
+        // 2. On compare manuellement ou via SQL
+        if (storedOtp !== null && storedOtp.toString() === cleanCode) {
             await db.query('UPDATE users SET is_verified = true, otp_code = NULL WHERE phone = $1', [cleanPhone]);
             return res.status(200).json({ 
                 success: true, 
                 message: "Compte vérifié",
-                user: result.rows[0]
+                user: userCheck.rows[0]
             });
         }
         
-        // Si on arrive ici, c'est que la requête n'a rien trouvé
-        res.status(400).json({ success: false, message: "Code erroné ou expiré" });
+        res.status(400).json({ success: false, message: "Code incorrect" });
     } catch (err) { 
         console.error("Erreur verifyOTP:", err);
         res.status(500).json({ success: false, message: "Erreur serveur" }); 
