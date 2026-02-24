@@ -146,22 +146,34 @@ exports.requestOTP = async (req, res) => {
 };
 
 exports.verifyOTP = async (req, res) => {
-    const { phone, code } = req.body; 
+    let { phone, code } = req.body; 
+    
+    // ✅ Sécurité : Nettoyage des données pour éviter les espaces invisibles
+    const cleanPhone = phone ? phone.trim() : "";
+    const cleanCode = code ? code.toString().trim() : "";
+
     try {
-        const result = await db.query('SELECT * FROM users WHERE phone = $1 AND otp_code = $2', [phone, code]);
+        // Log pour debugger dans Railway (tu verras ce que le serveur reçoit vraiment)
+        console.log(`Tentative de vérification - Phone: ${cleanPhone}, Code: ${cleanCode}`);
+
+        const result = await db.query(
+            'SELECT * FROM users WHERE phone = $1 AND otp_code = $2', 
+            [cleanPhone, cleanCode]
+        );
         
         if (result.rows.length > 0) {
-            await db.query('UPDATE users SET is_verified = true, otp_code = NULL WHERE phone = $1', [phone]);
+            await db.query('UPDATE users SET is_verified = true, otp_code = NULL WHERE phone = $1', [cleanPhone]);
             return res.status(200).json({ 
                 success: true, 
                 message: "Compte vérifié",
-                user: {
-                    name: result.rows[0].name,
-                    email: result.rows[0].email,
-                    phone: result.rows[0].phone
-                }
+                user: result.rows[0]
             });
         }
+        
+        // Si on arrive ici, c'est que la requête n'a rien trouvé
         res.status(400).json({ success: false, message: "Code erroné ou expiré" });
-    } catch (err) { res.status(500).json({ success: false, message: "Erreur serveur" }); }
+    } catch (err) { 
+        console.error("Erreur verifyOTP:", err);
+        res.status(500).json({ success: false, message: "Erreur serveur" }); 
+    }
 };
