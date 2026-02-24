@@ -3,30 +3,59 @@ const db = require('../config/db');
 
 const BREVO_API_KEY = process.env.BREVO_API_KEY;
 
+/**
+ * Fonction utilitaire pour envoyer des emails via Brevo
+ * Centraliser l'envoi permet de mieux diagnostiquer les erreurs
+ */
+const sendEmail = async (toEmail, subject, htmlContent) => {
+    try {
+        if (!BREVO_API_KEY) {
+            console.error("❌ ERREUR : BREVO_API_KEY est manquante dans Railway (Variables).");
+            return false;
+        }
+
+        const response = await axios.post('https://api.brevo.com/v3/smtp/email', {
+            sender: { name: "Uber CM", email: "daviladutau@gmail.com" },
+            to: [{ email: toEmail }],
+            subject: subject,
+            htmlContent: htmlContent
+        }, { 
+            headers: { 
+                'api-key': BREVO_API_KEY, 
+                'Content-Type': 'application/json' 
+            } 
+        });
+        
+        console.log(`✅ Mail envoyé avec succès à ${toEmail}. ID: ${response.data.messageId}`);
+        return true;
+    } catch (e) {
+        console.error("❌ Erreur Brevo lors de l'envoi :");
+        if (e.response) {
+            console.error("Détails :", JSON.stringify(e.response.data));
+        } else {
+            console.error("Message :", e.message);
+        }
+        return false;
+    }
+};
+
 // ==========================================
 // --- PARTIE CHAUFFEURS (PRO) ---
 // ==========================================
 
 exports.registerDriver = async (req, res) => {
     const { name, email, phone, city, referral_code } = req.body;
-    const generatedOtp = Math.floor(100000 + Math.random() * 900000).toString();
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
     try {
         const check = await db.query('SELECT * FROM chauffeurs WHERE LOWER(email) = LOWER($1)', [email]);
         if (check.rows.length > 0) return res.status(400).json({ success: false, message: "Email déjà utilisé" });
         
         await db.query(
             'INSERT INTO chauffeurs (name, email, phone, city, referral_code, otp_code) VALUES ($1, $2, $3, $4, $5, $6)',
-            [name, email, phone, city, referral_code, generatedOtp]
+            [name, email, phone, city, referral_code, otp]
         );
 
-        try {
-            await axios.post('https://api.brevo.com/v3/smtp/email', {
-                sender: { name: "Uber CM Pro", email: "daviladutau@gmail.com" },
-                to: [{ email, name }],
-                subject: "Vérification Chauffeur",
-                htmlContent: `<h4>Votre code : ${generatedOtp}</h4>`
-            }, { headers: { 'api-key': BREVO_API_KEY, 'Content-Type': 'application/json' } });
-        } catch (e) { console.error("Brevo Error:", e.message); }
+        await sendEmail(email, "Vérification Chauffeur Uber CM Pro", `<h4>Votre code : ${otp}</h4>`);
 
         return res.status(201).json({ success: true, message: "Chauffeur créé." });
     } catch (err) { return res.status(500).json({ success: false, message: err.message }); }
@@ -34,22 +63,15 @@ exports.registerDriver = async (req, res) => {
 
 exports.loginDriver = async (req, res) => {
     const { email } = req.body;
-    const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
     try {
         const result = await db.query('SELECT * FROM chauffeurs WHERE LOWER(email) = LOWER($1)', [email]);
         if (result.rows.length === 0) return res.status(404).json({ success: false, message: "Aucun compte trouvé" });
 
         const realEmail = result.rows[0].email;
-        await db.query('UPDATE chauffeurs SET otp_code = $1 WHERE email = $2', [otpCode, realEmail]);
+        await db.query('UPDATE chauffeurs SET otp_code = $1 WHERE email = $2', [otp, realEmail]);
 
-        try {
-            await axios.post('https://api.brevo.com/v3/smtp/email', {
-                sender: { name: "Uber CM Pro", email: "daviladutau@gmail.com" },
-                to: [{ email: realEmail }],
-                subject: "Connexion Uber CM Pro",
-                htmlContent: `<p>Votre code : <strong>${otpCode}</strong></p>`
-            }, { headers: { 'api-key': BREVO_API_KEY, 'Content-Type': 'application/json' } });
-        } catch (e) { console.error("Brevo Error:", e.message); }
+        await sendEmail(realEmail, "Connexion Uber CM Pro", `<p>Votre code : <strong>${otp}</strong></p>`);
 
         res.status(200).json({ success: true, message: "Code envoyé" });
     } catch (err) { res.status(500).json({ success: false, message: err.message }); }
@@ -93,32 +115,39 @@ exports.completeDriverProfile = async (req, res) => {
 exports.register = async (req, res) => {
     const { name, email, phone } = req.body;
     try {
-        const check = await db.query('SELECT * FROM users WHERE email = $1', [email]);
-        if (check.rows.length > 0) return res.status(400).json({ message: "Email déjà utilisé" });
+        const check = await db.query('SELECT * FROM users WHERE LOWER(email) = LOWER($1)', [email]);
+        if (check.rows.length > 0) return res.status(400).json({ success: false, message: "Email déjà utilisé" });
 
         await db.query('INSERT INTO users (name, email, phone) VALUES ($1, $2, $3)', [name, email, phone]);
         res.status(201).json({ success: true, message: "Client créé" });
-    } catch (err) { res.status(500).json({ message: err.message }); }
+    } catch (err) { res.status(500).json({ success: false, message: err.message }); }
 };
 
 exports.requestOTP = async (req, res) => {
     const { email } = req.body;
     const otp = Math.floor(100000 + Math.random() * 900000).toString();
     try {
-        await db.query('UPDATE users SET otp_code = $1 WHERE email = $2', [otp, email]);
-        // Logique d'envoi mail Brevo identique à celle du chauffeur...
+        const result = await db.query('SELECT * FROM users WHERE LOWER(email) = LOWER($1)', [email]);
+        if (result.rows.length === 0) return res.status(404).json({ success: false, message: "Utilisateur non trouvé" });
+
+        const targetEmail = result.rows[0].email;
+        await db.query('UPDATE users SET otp_code = $1 WHERE email = $2', [otp, targetEmail]);
+
+        await sendEmail(targetEmail, "Votre code de vérification Uber CM", `<p>Votre code : <strong>${otp}</strong></p>`);
+
         res.status(200).json({ success: true, message: "OTP envoyé" });
-    } catch (err) { res.status(500).json({ message: err.message }); }
+    } catch (err) { res.status(500).json({ success: false, message: err.message }); }
 };
 
 exports.verifyOTP = async (req, res) => {
     const { email, code } = req.body;
     try {
-        const result = await db.query('SELECT * FROM users WHERE email = $1 AND otp_code = $2', [email, code]);
+        const result = await db.query('SELECT * FROM users WHERE LOWER(email) = LOWER($1) AND otp_code = $2', [email, code]);
+        
         if (result.rows.length > 0) {
-            await db.query('UPDATE users SET is_verified = true WHERE email = $1', [email]);
-            return res.status(200).json({ success: true });
+            await db.query('UPDATE users SET is_verified = true, otp_code = NULL WHERE email = $1', [result.rows[0].email]);
+            return res.status(200).json({ success: true, message: "Compte vérifié" });
         }
-        res.status(400).json({ message: "Code erroné" });
-    } catch (err) { res.status(500).json({ message: err.message }); }
+        res.status(400).json({ success: false, message: "Code erroné" });
+    } catch (err) { res.status(500).json({ success: false, message: "Erreur serveur" }); }
 };
