@@ -115,8 +115,9 @@ exports.completeDriverProfile = async (req, res) => {
 exports.register = async (req, res) => {
     const { name, email, phone } = req.body;
     try {
-        const check = await db.query('SELECT * FROM users WHERE LOWER(email) = LOWER($1)', [email]);
-        if (check.rows.length > 0) return res.status(400).json({ success: false, message: "Email déjà utilisé" });
+        // On vérifie si l'email OU le téléphone existe déjà
+        const check = await db.query('SELECT * FROM users WHERE LOWER(email) = LOWER($1) OR phone = $2', [email, phone]);
+        if (check.rows.length > 0) return res.status(400).json({ success: false, message: "Email ou téléphone déjà utilisé" });
 
         await db.query('INSERT INTO users (name, email, phone) VALUES ($1, $2, $3)', [name, email, phone]);
         res.status(201).json({ success: true, message: "Client créé" });
@@ -124,30 +125,47 @@ exports.register = async (req, res) => {
 };
 
 exports.requestOTP = async (req, res) => {
-    const { email } = req.body;
+    const { phone } = req.body; // Flutter envoie le numéro de téléphone
     const otp = Math.floor(100000 + Math.random() * 900000).toString();
     try {
-        const result = await db.query('SELECT * FROM users WHERE LOWER(email) = LOWER($1)', [email]);
-        if (result.rows.length === 0) return res.status(404).json({ success: false, message: "Utilisateur non trouvé" });
+        // 1. On cherche l'utilisateur par son téléphone (identifiant envoyé par Flutter)
+        const result = await db.query('SELECT * FROM users WHERE phone = $1', [phone]);
+        
+        if (result.rows.length === 0) {
+            return res.status(404).json({ success: false, message: "Aucun compte trouvé pour ce numéro" });
+        }
 
+        // 2. On récupère son email stocké en base de données
         const targetEmail = result.rows[0].email;
-        await db.query('UPDATE users SET otp_code = $1 WHERE email = $2', [otp, targetEmail]);
+        
+        // 3. On met à jour le code OTP dans la base
+        await db.query('UPDATE users SET otp_code = $1 WHERE phone = $2', [otp, phone]);
 
-        await sendEmail(targetEmail, "Votre code de vérification Uber CM", `<p>Votre code : <strong>${otp}</strong></p>`);
+        // 4. On envoie le code à l'adresse EMAIL associée
+        await sendEmail(targetEmail, "Votre code de vérification Uber CM", `<p>Votre code est : <strong>${otp}</strong></p>`);
 
-        res.status(200).json({ success: true, message: "OTP envoyé" });
+        res.status(200).json({ success: true, message: "OTP envoyé par email" });
     } catch (err) { res.status(500).json({ success: false, message: err.message }); }
 };
 
 exports.verifyOTP = async (req, res) => {
-    const { email, code } = req.body;
+    const { phone, code } = req.body; // Flutter envoie phone et code
     try {
-        const result = await db.query('SELECT * FROM users WHERE LOWER(email) = LOWER($1) AND otp_code = $2', [email, code]);
+        // On vérifie le code associé au téléphone
+        const result = await db.query('SELECT * FROM users WHERE phone = $1 AND otp_code = $2', [phone, code]);
         
         if (result.rows.length > 0) {
-            await db.query('UPDATE users SET is_verified = true, otp_code = NULL WHERE email = $1', [result.rows[0].email]);
-            return res.status(200).json({ success: true, message: "Compte vérifié" });
+            await db.query('UPDATE users SET is_verified = true, otp_code = NULL WHERE phone = $1', [phone]);
+            return res.status(200).json({ 
+                success: true, 
+                message: "Compte vérifié",
+                user: {
+                    name: result.rows[0].name,
+                    email: result.rows[0].email,
+                    phone: result.rows[0].phone
+                }
+            });
         }
-        res.status(400).json({ success: false, message: "Code erroné" });
+        res.status(400).json({ success: false, message: "Code erroné ou expiré" });
     } catch (err) { res.status(500).json({ success: false, message: "Erreur serveur" }); }
 };
