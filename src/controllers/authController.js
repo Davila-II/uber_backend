@@ -152,20 +152,19 @@ exports.verifyOTP = async (req, res) => {
     const cleanCode = code ? code.toString().trim() : "";
 
     try {
-        // 1. On cherche d'abord l'utilisateur par son téléphone uniquement pour voir son OTP actuel
-        const userCheck = await db.query('SELECT phone, otp_code FROM users WHERE phone = $1', [cleanPhone]);
+        const userCheck = await db.query('SELECT * FROM users WHERE phone = $1', [cleanPhone]);
 
         if (userCheck.rows.length === 0) {
-            console.log(`❌ Vérification échouée : Aucun utilisateur trouvé avec le téléphone [${cleanPhone}]`);
             return res.status(404).json({ success: false, message: "Utilisateur non trouvé" });
         }
 
         const storedOtp = userCheck.rows[0].otp_code;
-        console.log(`🔍 DEBUG : Téléphone trouvé [${cleanPhone}] | OTP en base : [${storedOtp}] | OTP envoyé par Flutter : [${cleanCode}]`);
 
-        // 2. On compare manuellement ou via SQL
+        // ✅ Comparaison des codes
         if (storedOtp !== null && storedOtp.toString() === cleanCode) {
-            await db.query('UPDATE users SET is_verified = true, otp_code = NULL WHERE phone = $1', [cleanPhone]);
+            // On supprime l'OTP utilisé, mais on ne touche pas à is_verified car la colonne n'existe pas
+            await db.query('UPDATE users SET otp_code = NULL WHERE phone = $1', [cleanPhone]);
+            
             return res.status(200).json({ 
                 success: true, 
                 message: "Compte vérifié",
