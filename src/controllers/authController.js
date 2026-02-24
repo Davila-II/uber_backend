@@ -115,7 +115,6 @@ exports.completeDriverProfile = async (req, res) => {
 exports.register = async (req, res) => {
     const { name, email, phone } = req.body;
     try {
-        // On vérifie si l'email OU le téléphone existe déjà
         const check = await db.query('SELECT * FROM users WHERE LOWER(email) = LOWER($1) OR phone = $2', [email, phone]);
         if (check.rows.length > 0) return res.status(400).json({ success: false, message: "Email ou téléphone déjà utilisé" });
 
@@ -125,23 +124,21 @@ exports.register = async (req, res) => {
 };
 
 exports.requestOTP = async (req, res) => {
-    const { phone } = req.body; // Flutter envoie le numéro de téléphone
-    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    const { phone } = req.body; 
+    // ✅ CORRECTION ICI : Génère un code à 4 chiffres (ex: 4829)
+    const otp = Math.floor(1000 + Math.random() * 9000).toString();
+    
     try {
-        // 1. On cherche l'utilisateur par son téléphone (identifiant envoyé par Flutter)
         const result = await db.query('SELECT * FROM users WHERE phone = $1', [phone]);
         
         if (result.rows.length === 0) {
             return res.status(404).json({ success: false, message: "Aucun compte trouvé pour ce numéro" });
         }
 
-        // 2. On récupère son email stocké en base de données
         const targetEmail = result.rows[0].email;
         
-        // 3. On met à jour le code OTP dans la base
         await db.query('UPDATE users SET otp_code = $1 WHERE phone = $2', [otp, phone]);
 
-        // 4. On envoie le code à l'adresse EMAIL associée
         await sendEmail(targetEmail, "Votre code de vérification Uber CM", `<p>Votre code est : <strong>${otp}</strong></p>`);
 
         res.status(200).json({ success: true, message: "OTP envoyé par email" });
@@ -149,9 +146,8 @@ exports.requestOTP = async (req, res) => {
 };
 
 exports.verifyOTP = async (req, res) => {
-    const { phone, code } = req.body; // Flutter envoie phone et code
+    const { phone, code } = req.body; 
     try {
-        // On vérifie le code associé au téléphone
         const result = await db.query('SELECT * FROM users WHERE phone = $1 AND otp_code = $2', [phone, code]);
         
         if (result.rows.length > 0) {
