@@ -45,30 +45,19 @@ const sendEmail = async (toEmail, subject, htmlContent) => {
 
 // --- CONNEXION CHAUFFEUR ---
 exports.loginDriver = async (req, res) => {
-  try {
-    const { phone } = req.body; 
-    
-    // On cherche le chauffeur dans la base de données par son numéro
-    const result = await db.query('SELECT * FROM chauffeurs WHERE phone = $1', [phone]);
-    
-    if (result.rows.length === 0) {
-      return res.status(404).json({ message: "Ce numéro n'est pas enregistré." });
-    }
+    const { email } = req.body;
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    try {
+        const result = await db.query('SELECT * FROM chauffeurs WHERE LOWER(email) = LOWER($1)', [email]);
+        if (result.rows.length === 0) return res.status(404).json({ success: false, message: "Aucun compte trouvé" });
 
-    const chauffeur = result.rows[0];
+        const realEmail = result.rows[0].email;
+        await db.query('UPDATE chauffeurs SET otp_code = $1 WHERE email = $2', [otp, realEmail]);
 
-    // Succès ! On renvoie les données du chauffeur à Flutter
-    res.status(200).json({
-      id: chauffeur.id,
-      name: chauffeur.name,
-      phone: chauffeur.phone,
-      plate: chauffeur.plate
-    });
+        await sendEmail(realEmail, "Connexion Uber CM Pro", `<p>Votre code : <strong>${otp}</strong></p>`);
 
-  } catch (error) {
-    console.error("Erreur login chauffeur:", error.message);
-    res.status(500).json({ message: "Erreur interne du serveur" });
-  }
+        res.status(200).json({ success: true, message: "Code envoyé" });
+    } catch (err) { res.status(500).json({ success: false, message: err.message }); }
 };
 
 exports.registerDriver = async (req, res) => {
@@ -89,36 +78,34 @@ exports.registerDriver = async (req, res) => {
     } catch (err) { return res.status(500).json({ success: false, message: err.message }); }
 };
 
-exports.loginDriver = async (req, res) => {
-    const { email } = req.body;
-    const otp = Math.floor(100000 + Math.random() * 900000).toString();
-    try {
-        const result = await db.query('SELECT * FROM chauffeurs WHERE LOWER(email) = LOWER($1)', [email]);
-        if (result.rows.length === 0) return res.status(404).json({ success: false, message: "Aucun compte trouvé" });
-
-        const realEmail = result.rows[0].email;
-        await db.query('UPDATE chauffeurs SET otp_code = $1 WHERE email = $2', [otp, realEmail]);
-
-        await sendEmail(realEmail, "Connexion Uber CM Pro", `<p>Votre code : <strong>${otp}</strong></p>`);
-
-        res.status(200).json({ success: true, message: "Code envoyé" });
-    } catch (err) { res.status(500).json({ success: false, message: err.message }); }
-};
-
+// ✅ MISE À JOUR : Renvoie TOUTES les infos du chauffeur
 exports.verifyDriverOTP = async (req, res) => {
     const { email, code } = req.body;
     try {
         const result = await db.query('SELECT * FROM chauffeurs WHERE LOWER(email) = LOWER($1) AND otp_code = $2', [email, code]);
+        
         if (result.rows.length > 0) {
             const driver = result.rows[0];
             const isProfileComplete = driver.brand !== null && driver.brand !== "";
+            
             await db.query('UPDATE chauffeurs SET is_verified = true, otp_code = NULL WHERE email = $1', [driver.email]);
-            return res.status(200).json({ success: true, isProfileComplete: isProfileComplete });
+            
+            // On renvoie TOUT ce dont Flutter a besoin
+            return res.status(200).json({ 
+                success: true, 
+                isProfileComplete: isProfileComplete,
+                id: driver.id,
+                name: driver.name,
+                phone: driver.phone,
+                plate: driver.plate 
+            });
         }
+        
         return res.status(400).json({ success: false, message: "Code incorrect" });
     } catch (err) { res.status(500).json({ success: false, message: "Erreur serveur" }); }
 };
 
+// ✅ MISE À JOUR : Renvoie TOUTES les infos mises à jour
 exports.completeDriverProfile = async (req, res) => {
     try {
         const { email, brand, model, year, color, plate } = req.body;
@@ -132,7 +119,19 @@ exports.completeDriverProfile = async (req, res) => {
             license_img=$6, insurance_img=$7, id_card_img=$8, vehicle_img=$9 WHERE LOWER(email)=LOWER($10)`,
             [brand, model, year, color, plate, licensePath, insurancePath, idCardPath, vehiclePhotoPath, email]
         );
-        res.status(200).json({ success: true, message: "Profil complété !" });
+
+        // On va chercher le chauffeur mis à jour pour renvoyer ses nouvelles infos
+        const updatedDriver = await db.query('SELECT * FROM chauffeurs WHERE LOWER(email) = LOWER($1)', [email]);
+        const driver = updatedDriver.rows[0];
+
+        res.status(200).json({ 
+            success: true, 
+            message: "Profil complété !",
+            id: driver.id,
+            name: driver.name,
+            phone: driver.phone,
+            plate: driver.plate
+        });
     } catch (err) { res.status(500).json({ success: false, message: err.message }); }
 };
 
@@ -153,7 +152,6 @@ exports.register = async (req, res) => {
 
 exports.requestOTP = async (req, res) => {
     const { phone } = req.body; 
-    // ✅ CORRECTION ICI : Génère un code à 4 chiffres (ex: 4829)
     const otp = Math.floor(1000 + Math.random() * 9000).toString();
     
     try {
@@ -188,9 +186,7 @@ exports.verifyOTP = async (req, res) => {
 
         const storedOtp = userCheck.rows[0].otp_code;
 
-        // ✅ Comparaison des codes
         if (storedOtp !== null && storedOtp.toString() === cleanCode) {
-            // On supprime l'OTP utilisé, mais on ne touche pas à is_verified car la colonne n'existe pas
             await db.query('UPDATE users SET otp_code = NULL WHERE phone = $1', [cleanPhone]);
             
             return res.status(200).json({ 
