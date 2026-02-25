@@ -1,6 +1,6 @@
 const express = require('express');
 const cors = require('cors');
-const path = require('path'); // Nécessaire pour gérer les chemins de fichiers
+const path = require('path');
 require('dotenv').config();
 const db = require('./config/db'); 
 const authRoutes = require('./routes/authRoutes');
@@ -12,7 +12,6 @@ app.use(cors());
 app.use(express.json()); 
 
 // ✅ RENDRE LE DOSSIER UPLOADS PUBLIC
-// Cela permet de voir les images via : https://ton-url.railway.app/uploads/nom-image.jpg
 app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
 
 // --- Routes ---
@@ -21,6 +20,37 @@ app.use('/api/auth', authRoutes);
 // Route de test
 app.get('/', (req, res) => {
   res.send('Le serveur Uber_CM fonctionne !');
+});
+
+// --- ✅ ROUTE POUR RÉCUPÉRER LE CHAUFFEUR ---
+app.get('/chauffeurs/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    // On cherche le chauffeur dans PostgreSQL
+    const result = await db.query('SELECT * FROM chauffeurs WHERE id = $1', [id]);
+    
+    if (result.rows.length === 0) {
+      return res.status(404).json({ message: "Chauffeur non trouvé" });
+    }
+    
+    const chauffeur = result.rows[0];
+
+    // On traduit les données de la DB (anglais) vers ce que Flutter attend (français)
+    res.json({
+      id: chauffeur.id,
+      nom: chauffeur.name,
+      marque: chauffeur.brand,
+      modele: chauffeur.model,
+      immatriculation: chauffeur.plate,
+      photo_url: chauffeur.vehicle_img, // ou chauffeur.id_card_img si tu as une vraie photo
+      note: 4.8 // Valeur par défaut pour l'instant
+    });
+    
+  } catch (error) {
+    console.error("Erreur serveur:", error.message);
+    res.status(500).json({ message: "Erreur interne du serveur" });
+  }
 });
 
 const PORT = process.env.PORT || 5000;
@@ -42,7 +72,7 @@ const initDB = async () => {
             );
         `);
 
-        // ✅ RE-CRÉATION DE LA TABLE CHAUFFEURS (Après ton DROP)
+        // Table Chauffeurs
         await db.query(`
             CREATE TABLE IF NOT EXISTS chauffeurs (
                 id SERIAL PRIMARY KEY,
@@ -65,6 +95,16 @@ const initDB = async () => {
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
         `);
+
+        // ✅ CRÉATION D'UN CHAUFFEUR DE TEST SI LA TABLE EST VIDE
+        const checkDriver = await db.query('SELECT * FROM chauffeurs WHERE id = 1');
+        if (checkDriver.rows.length === 0) {
+            await db.query(`
+                INSERT INTO chauffeurs (id, name, brand, model, plate, vehicle_img, is_verified)
+                VALUES (1, 'Arrel (Test Driver)', 'Toyota', 'Yaris', 'CE-123-AB', 'https://cdn-icons-png.flaticon.com/512/3135/3135715.png', TRUE)
+            `);
+            console.log("🚕 Chauffeur de test (ID 1) ajouté avec succès !");
+        }
         
         console.log("✅ Base de données synchronisée (Tables vérifiées)");
     } catch (err) {
