@@ -43,6 +43,34 @@ const sendEmail = async (toEmail, subject, htmlContent) => {
 // --- PARTIE CHAUFFEURS (PRO) ---
 // ==========================================
 
+// --- CONNEXION CHAUFFEUR ---
+exports.loginDriver = async (req, res) => {
+  try {
+    const { phone } = req.body; 
+    
+    // On cherche le chauffeur dans la base de données par son numéro
+    const result = await db.query('SELECT * FROM chauffeurs WHERE phone = $1', [phone]);
+    
+    if (result.rows.length === 0) {
+      return res.status(404).json({ message: "Ce numéro n'est pas enregistré." });
+    }
+
+    const chauffeur = result.rows[0];
+
+    // Succès ! On renvoie les données du chauffeur à Flutter
+    res.status(200).json({
+      id: chauffeur.id,
+      name: chauffeur.name,
+      phone: chauffeur.phone,
+      plate: chauffeur.plate
+    });
+
+  } catch (error) {
+    console.error("Erreur login chauffeur:", error.message);
+    res.status(500).json({ message: "Erreur interne du serveur" });
+  }
+};
+
 exports.registerDriver = async (req, res) => {
     const { name, email, phone, city, referral_code } = req.body;
     const otp = Math.floor(100000 + Math.random() * 900000).toString();
