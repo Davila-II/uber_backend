@@ -202,3 +202,34 @@ exports.verifyOTP = async (req, res) => {
         res.status(500).json({ success: false, message: "Erreur serveur" }); 
     }
 };
+
+exports.uploadProfilePic = async (req, res) => {
+    try {
+        const { phone } = req.body;
+        const file = req.file;
+
+        if (!file) {
+            return res.status(400).json({ success: false, message: "Aucun fichier reçu" });
+        }
+
+        // On construit l'URL publique (Railway assigne automatiquement l'URL à ton app)
+        // Note: Remplace par ton URL Railway si elle est différente
+        const baseUrl = "https://uberbackend-production-e8ea.up.railway.app";
+        const photoUrl = `${baseUrl}/uploads/${file.filename}`;
+
+        // Mise à jour dans PostgreSQL
+        await db.query(
+            'UPDATE users SET photo_url = $1 WHERE phone = $2',
+            [photoUrl, phone]
+        );
+
+        res.status(200).json({
+            success: true,
+            message: "Photo mise à jour !",
+            photo_url: photoUrl
+        });
+    } catch (err) {
+        console.error("Erreur upload profil:", err.message);
+        res.status(500).json({ success: false, message: "Erreur serveur" });
+    }
+};

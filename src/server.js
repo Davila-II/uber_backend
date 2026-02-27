@@ -62,15 +62,16 @@ const initDB = async () => {
         
         // Table Users
         await db.query(`
-            CREATE TABLE IF NOT EXISTS users (
-                id SERIAL PRIMARY KEY,
-                phone VARCHAR(20) UNIQUE,
-                name VARCHAR(255),
-                email VARCHAR(255),
-                otp_code VARCHAR(10),
-                role VARCHAR(50) DEFAULT 'user'
-            );
-        `);
+                CREATE TABLE IF NOT EXISTS users (
+                    id SERIAL PRIMARY KEY,
+                    phone VARCHAR(20) UNIQUE,
+                    name VARCHAR(255),
+                    email VARCHAR(255),
+                    photo_url TEXT, -- ✅ AJOUTE CETTE LIGNE
+                    otp_code VARCHAR(10),
+                    role VARCHAR(50) DEFAULT 'user'
+                );
+            `);
 
         // Table Chauffeurs
         await db.query(`

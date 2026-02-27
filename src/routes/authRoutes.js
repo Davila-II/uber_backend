@@ -41,3 +41,6 @@ router.post('/driver/complete-profile', upload.fields([
 ]), authController.completeDriverProfile);
 
 module.exports = router;
+
+// Ajoute cette route à la fin de ton fichier authRoutes.js
+router.post('/upload-profile-pic', upload.single('image'), authController.uploadProfilePic);
